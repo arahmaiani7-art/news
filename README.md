@@ -2,10 +2,10 @@
 
 每天自动抓热榜、按固定模板渲染成 375px 宽竖版 PNG，通过 GitHub Pages 提供**固定 URL 的图片直链**。
 
-产出直链形如：
+产出直链：
 
 ```
-https://arahmaiani7-art.github.io/daily-news-poster/latest.png
+https://arahmaiani7-art.github.io/news/latest.png
 ```
 
 `latest.png` 文件名恒定，每天内容更新，可直接喂给插件。
