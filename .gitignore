@@ -12,3 +12,8 @@ venv/
 .DS_Store
 .vscode/
 .idea/
+
+# 非当天的归档图不入库（每天只有一张 latest.png 需要发布）
+# 2026-11-20.png 保留作为模板基线样本
+output/20[0-9][0-9]-*.png
+!output/2026-11-20.png
