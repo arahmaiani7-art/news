@@ -1,98 +1,79 @@
-"""热点抓取。
+"""获取「60 秒读懂世界」当日 15 条新闻，主站失败时依次尝试镜像。
 
-数据源：百度热搜实时榜。
-页面把数据内联在 HTML 注释 `<!--s-data:{...}-->` 里，直接正则取出解析，
-不必启动无头浏览器。
+数据源：https://60s-api.viki.moe/v2/60s （开源项目 vikiboss/60s）
+镜像：60s.viki.moe、60s.coolsong.com
 
-注意：本模块只负责取回候选条目，不判断哪条"重要"。选题与压缩由调用方决定。
+接口每日约北京时间 08:00 前更新，当天内容以 `data.date` 为准。
+本模块只做取数与完整性校验，不改写、不截断、不重排文案——
+"新闻归纳呆板"的根因是旧的摘要截断规则，保留接口原文才有完整语义。
 """
 from __future__ import annotations
 
-import gzip
+import datetime as dt
 import json
-import re
 import urllib.request
-import zlib
 
-BAIDU_URL = "https://top.baidu.com/board?tab=realtime"
+NEWS_COUNT = 15
 
-UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/159.0 Safari/537.36"
+URLS = (
+    "https://60s-api.viki.moe/v2/60s",
+    "https://60s.viki.moe/v2/60s",
+    "https://60s.coolsong.com/v2/60s",
 )
 
-_DATA_RE = re.compile(r"<!--s-data:([\s\S]*?)-->")
+# 单条超过这个长度说明接口数据异常，宁可失败也不生成畸形长条目
+MAX_RAW_CHARS = 300
 
 
-class HotListError(RuntimeError):
-    """热榜获取或解析失败。不返回空列表冒充当日数据。"""
+class NewsError(RuntimeError):
+    """新闻接口不可用或数据无效。不返回空列表冒充当日数据。"""
 
 
-def _fetch(url: str, timeout: int = 30) -> str:
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": UA,
-            "Accept-Language": "zh-CN,zh;q=0.9",
-            "Accept": "text/html,application/xhtml+xml",
-            "Accept-Encoding": "gzip, deflate",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read()
-        encoding = (resp.headers.get("Content-Encoding") or "").lower()
+def _check(payload: object, target: dt.date) -> dict:
+    if not isinstance(payload, dict) or payload.get("code") != 200:
+        raise NewsError("接口返回失败")
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise NewsError("接口 data 字段无效")
+    if data.get("date") != target.isoformat():
+        raise NewsError(f"新闻日期 {data.get('date')} 与目标日期 {target.isoformat()} 不符")
 
-    if encoding == "gzip":
-        raw = gzip.decompress(raw)
-    elif encoding == "deflate":
-        raw = zlib.decompress(raw, -zlib.MAX_WBITS)
+    news = data.get("news")
+    if (
+        not isinstance(news, list)
+        or len(news) != NEWS_COUNT
+        or any(not isinstance(item, str) or not item.strip() for item in news)
+    ):
+        size = len(news) if isinstance(news, list) else "非列表"
+        raise NewsError(f"新闻必须是 {NEWS_COUNT} 条非空文字，实际 {size}")
 
-    return raw.decode("utf-8", errors="replace")
+    texts = [item.strip() for item in news]
+    if len(set(texts)) != NEWS_COUNT:
+        raise NewsError("新闻包含重复条目")
+    too_long = [len(t) for t in texts if len(t) > MAX_RAW_CHARS]
+    if too_long:
+        raise NewsError(f"新闻条目长度异常，最长 {max(too_long)} 字")
+    return {**data, "news": texts}
 
 
-def fetch_baidu_hot(limit: int = 50, timeout: int = 30) -> list[dict]:
-    """返回 [{rank, word, desc, score}]，按榜单原始顺序。"""
-    html = _fetch(BAIDU_URL, timeout=timeout)
-    m = _DATA_RE.search(html)
-    if not m:
-        raise HotListError("百度热榜页面中未找到 s-data 数据块，页面结构可能已变更")
-
-    try:
-        payload = json.loads(m.group(1))
-    except json.JSONDecodeError as exc:
-        raise HotListError(f"百度热榜数据块 JSON 解析失败：{exc}") from exc
-
-    cards = (payload.get("data") or {}).get("cards") or []
-    if not cards:
-        raise HotListError("百度热榜数据块中没有 cards 字段")
-
-    items: list[dict] = []
-    for card in cards:
-        for entry in card.get("content") or []:
-            word = (entry.get("word") or "").strip()
-            if not word:
-                continue
-            items.append(
-                {
-                    "rank": len(items) + 1,
-                    "word": word,
-                    "desc": (entry.get("desc") or "").strip(),
-                    "score": entry.get("hotScore"),
-                }
+def fetch_daily(target: dt.date, timeout: int = 20) -> dict:
+    """返回接口 data（含 news / tip / date / link 等），主站失败自动换镜像。"""
+    errors: list[str] = []
+    for url in URLS:
+        try:
+            request = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
             )
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                payload = json.load(response)
+            return {**_check(payload, target), "source": url}
+        except Exception as exc:  # 网络、JSON、校验失败都换下一个镜像
+            errors.append(f"{url}: {type(exc).__name__}: {exc}")
 
-    if not items:
-        raise HotListError("百度热榜解析结果为空")
-
-    return items[:limit]
+    raise NewsError("所有新闻接口均失败：" + "; ".join(errors))
 
 
-def fetch_candidates(limit: int = 50, timeout: int = 30) -> list[dict]:
-    """当前只接百度。保留此函数作为多源扩展点。
-
-    若要加抖音等需要渲染的数据源，在这里合并，并在返回值里保留来源标记。
-    """
-    items = fetch_baidu_hot(limit=limit, timeout=timeout)
-    for it in items:
-        it["source"] = "baidu"
-    return items
+def fetch_news(target: dt.date, timeout: int = 20) -> list[str]:
+    """只要 15 条文案，顺序与接口一致。"""
+    return fetch_daily(target, timeout=timeout)["news"]

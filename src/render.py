@@ -15,8 +15,9 @@ from typing import Iterable
 from playwright.sync_api import sync_playwright
 
 NEWS_COUNT = 15
-# 每条上限（SKILL.md 约束）：正文宽 317px、14px 字号 → 一行约 22 个汉字，最多 2 行
-MAX_CHARS = 40
+# 每条上限：模板正文宽约 317px、14px 字号，一行约 22 字。
+# 条目没有固定高度、海报按内容自动增高，100 字约 5 行仍不会被裁切。
+MAX_CHARS = 100
 
 
 class RenderError(RuntimeError):
