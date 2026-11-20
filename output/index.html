@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>每日60秒读懂世界</title>
+<style>
+  body {
+    margin: 0; padding: 24px 16px; background: #F5F5F5;
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+  }
+  h1 { font-size: 18px; color: #1A1A1A; margin: 0; }
+  img {
+    width: 375px; max-width: 100%; height: auto;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12); background: #FFFFFF;
+  }
+  p { font-size: 12px; color: #888888; margin: 0; text-align: center; line-height: 1.6; }
+  code { font-size: 11px; color: #555555; word-break: break-all; }
+</style>
+</head>
+<body>
+  <h1>每日60秒读懂世界</h1>
+  <img src="./latest.png" alt="每日新闻海报" />
+  <p>
+    图片直链（可直接喂给插件）：<br />
+    <code id="direct"></code>
+  </p>
+  <p id="meta"></p>
+  <script>
+    // 展示可直接使用的绝对直链，避免用户自己拼
+    document.getElementById("direct").textContent =
+      new URL("./latest.png", location.href).href;
+
+    // 读取当天元信息；失败不影响图片显示
+    fetch("./latest.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) document.getElementById("meta").textContent =
+          `${d.solar_year}${d.solar_date} · 农历${d.lunar_date} · ${d.news.length} 条`;
+      })
+      .catch(() => {});
+  </script>
+</body>
+</html>

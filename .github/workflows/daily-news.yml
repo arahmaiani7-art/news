@@ -1,0 +1,71 @@
+name: Daily News Poster
+
+on:
+  schedule:
+    # 北京时间 07:00 = UTC 23:00（前一天）。GitHub cron 一律按 UTC。
+    - cron: "0 23 * * *"
+  workflow_dispatch: {}   # 支持手动触发，便于首次验证与补跑
+
+# 同一时刻只跑一个，避免两次部署互相覆盖
+concurrency:
+  group: daily-poster
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # Chromium 截图中文必须要有 CJK 字体，否则渲染成方框
+      - name: Install CJK fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Generate poster
+        run: python src/generate.py
+
+      # 生成失败时天然不会走到这里，上一次部署的 latest.png 继续在线提供服务
+      - name: Verify output
+        run: |
+          test -f output/latest.png || { echo "latest.png 未生成"; exit 1; }
+          python - <<'PY'
+          import pathlib
+          p = pathlib.Path("output/latest.png")
+          head = p.read_bytes()[:8]
+          assert head == b"\x89PNG\r\n\x1a\n", f"不是合法 PNG: {head!r}"
+          print(f"OK {p} {p.stat().st_size} bytes")
+          PY
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: output
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>每日60秒读懂世界</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { background: #FFFFFF; }
+  body {
+    width: 375px;
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .poster { display: flex; flex-direction: column; width: 375px; background: #FFFFFF; }
+
+  .header-section {
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    gap: 8px; padding-top: 36px; padding-bottom: 28px; background: #E4533A;
+  }
+  .weekday-en {
+    color: #FFFFFF; font-size: 12px; font-weight: 500;
+    line-height: 16px; letter-spacing: 3px; text-align: center;
+  }
+  .weekday-cn {
+    color: #FFFFFF; font-size: 52px; font-weight: 900;
+    line-height: 60px; text-align: center;
+  }
+  .header-motto {
+    align-self: stretch; color: #FFFFFF; font-size: 12px;
+    line-height: 18px; text-align: center; padding: 0 16px;
+  }
+
+  .info-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid #1A1A1A; border-bottom: 1px solid #1A1A1A;
+  }
+  .lunar-date-wrapper {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px; flex-shrink: 0;
+  }
+  .lunar-label { color: #888888; font-size: 11px; line-height: 14px; }
+  .lunar-date { color: #1A1A1A; font-size: 12px; font-weight: 500; line-height: 16px; }
+  .main-title {
+    flex: 1; color: #E02020; font-size: 18px; font-weight: 900;
+    line-height: 24px; text-align: center;
+  }
+  .solar-date-wrapper {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0;
+  }
+  .solar-year { color: #1A1A1A; font-size: 12px; font-weight: 500; line-height: 16px; text-align: right; }
+  .solar-date { color: #1A1A1A; font-size: 12px; font-weight: 500; line-height: 16px; text-align: right; }
+
+  .news-list {
+    display: flex; flex-direction: column; align-items: stretch;
+    gap: 14px; padding: 20px 16px;
+  }
+  .news-item {
+    display: flex; align-items: flex-start; gap: 4px; align-self: stretch;
+  }
+  .news-num {
+    flex-shrink: 0; color: #333333; font-size: 14px; line-height: 20px;
+  }
+  .news-text {
+    flex: 1; color: #333333; font-size: 14px; line-height: 20px;
+    word-break: break-word;
+  }
+
+  .footer-motto {
+    display: flex; align-items: flex-start; gap: 4px;
+    padding: 12px 16px 16px 16px;
+  }
+  .motto-label {
+    flex-shrink: 0; color: #333333; font-size: 14px; font-weight: 700; line-height: 20px;
+  }
+  .motto-text {
+    flex: 1; color: #555555; font-size: 14px; line-height: 20px;
+  }
+
+  .bottom-spacer { height: 24px; background: #FFFFFF; }
+</style>
+</head>
+<body>
+<main class="poster" data-name="Daily-News-Poster-Page">
+
+  <div class="header-section" data-name="header-section">
+    <span class="weekday-en" data-name="weekday-en">{{WEEKDAY_EN}}</span>
+    <span class="weekday-cn" data-name="weekday-cn">{{WEEKDAY_CN}}</span>
+    <p class="header-motto" data-name="header-motto">{{HEADER_MOTTO}}</p>
+  </div>
+
+  <div class="info-bar" data-name="info-bar">
+    <div class="lunar-date-wrapper" data-name="lunar-date-wrapper">
+      <span class="lunar-label" data-name="lunar-label">农历</span>
+      <span class="lunar-date" data-name="lunar-date">{{LUNAR_DATE}}</span>
+    </div>
+    <p class="main-title" data-name="main-title">每日60秒读懂世界</p>
+    <div class="solar-date-wrapper" data-name="solar-date-wrapper">
+      <span class="solar-year" data-name="solar-year">{{SOLAR_YEAR}}</span>
+      <span class="solar-date" data-name="solar-date">{{SOLAR_DATE}}</span>
+    </div>
+  </div>
+
+  <div class="news-list" data-name="news-list">{{NEWS_LIST}}</div>
+
+  <div class="footer-motto" data-name="footer-motto">
+    <span class="motto-label" data-name="motto-label">【微语】</span>
+    <p class="motto-text" data-name="motto-text">{{FOOTER_MOTTO}}</p>
+  </div>
+
+  <div class="bottom-spacer" data-name="bottom-spacer"></div>
+</main>
+</body>
+</html>
