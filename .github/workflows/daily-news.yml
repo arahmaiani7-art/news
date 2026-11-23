@@ -6,7 +6,13 @@ on:
     # 为什么提前到 07:00：Actions 的 schedule 实测排队延迟 57–64 分钟
     # （原 08:15 的 cron 连续三天实际 09:12~09:19 才启动，已晚于插件 09:00 发送）。
     # 任务内部会轮询等待 60 秒接口发布当天数据（通常 07:48 前后）。
-    - cron: "0 23 * * *"
+    #
+    # 为什么还要第二条：schedule 除了延迟，高负载时还会整条丢弃。
+    # 07:00 那条被丢时，08:00 这条仍有 45 分钟窗口等到数据，9 点前照样出图。
+    # concurrency 的 cancel-in-progress: false 保证两条不会并发写同一份产物；
+    # 前一条跑完后那条再触发时，数据已就绪，几十秒就结束。
+    - cron: "0 23 * * *"   # 北京 07:00，主
+    - cron: "0 0 * * *"    # 北京 08:00，主任务被 GitHub 丢弃时补位
   workflow_dispatch:
     inputs:
       wait_until:
@@ -20,16 +26,21 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write    # 每天回写 latest.json 保活（见 Keep scheduled workflow alive）
   pages: write
   id-token: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 等待窗口最长约 2 小时（07:00 触发 → 08:45 截止），加上安装依赖与字体，
-    # 给 90 分钟上限足够，也避免异常情况下挂满 6 小时。
-    timeout-minutes: 90
+    # 必须 > 最坏情况总耗时，否则「触发越准点越必然失败」：
+    #   等待窗口 07:00 → 08:45 = 105 分钟（准点启动时的最坏值）
+    #   + 装 CJK 字体 / Python 依赖 / Chromium 约 3–5 分钟
+    #   + 渲染与上传约 1 分钟
+    # 给 130 分钟留出约 20 分钟余量。
+    # 注意：等待窗口是从「触发时刻」算起的，而同一天两条 cron（07:00 / 08:00）
+    # 各自独立计时，后者窗口更短，130 对两条都够。
+    timeout-minutes: 130
     steps:
       - uses: actions/checkout@v4
 
@@ -77,6 +88,32 @@ jobs:
           assert head == b"\x89PNG\r\n\x1a\n", f"不是合法 PNG: {head!r}"
           print(f"OK {p} {p.stat().st_size} bytes")
           PY
+
+      # GitHub 规定：公开仓库连续 60 天无活动，scheduled workflow 会被自动禁用
+      # （邮件提醒，需手动 re-enable）。产物走 Pages artifact 不产生 commit，
+      # 长期无 push 会让 cron 两个月后静默停掉。
+      # 这里把 latest.json 回写仓库：既保活，也顺带留下每日新闻的版本历史。
+      #
+      # 重要：push 失败必须不致命。保活是附带目的，发图才是主线——
+      # 若因远端有新提交导致 non-fast-forward 就中断 build，deploy 将不会执行，
+      # 等于为了保活把每天的海报弄丢。所以失败只告警，明天再试。
+      - name: Keep scheduled workflow alive
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- output/latest.json; then
+            echo "latest.json 无变化，跳过提交"
+            exit 0
+          fi
+          git add output/latest.json
+          git commit -m "chore: 更新当日新闻快照 $(date -u +%Y-%m-%d)"
+          # 显式指定 ref：不依赖 checkout 是否处于分支状态，
+          # 也不会在从非默认分支手动触发时误推到 main
+          if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+            echo "已回写 latest.json"
+          else
+            echo "::warning::latest.json 回写失败（不影响本次发图）；若持续失败需检查 60 天保活"
+          fi
 
       - uses: actions/upload-pages-artifact@v3
         with:
