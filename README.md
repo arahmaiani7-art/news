@@ -79,8 +79,16 @@ CI 中 `Generate poster` 失败即中断，上一次部署的 `latest.png` 继�
   若恰好准点启动，就等 48 分钟再出图。两种情况都在 09:00 之前。
 - **两条 cron 冗余，防止整条被丢弃**。schedule 除了延迟，高负载时还会直接丢弃，
   只有一条时被丢就当天无任务可等。第二条 `0 0 * * *`（北京 08:00）补位；
-  `concurrency` 的 `cancel-in-progress: false` 保证不会并发写同一份产物，
-  前一条跑完后那条再触发时数据已就绪，几十秒结束。
+  `concurrency` 的 `cancel-in-progress: false` 保证不会并发写同一份产物。
+- **第二条 cron 会幂等跳过，不是白跑**。正常情况下 07:00 那条已出图，08:00 那条
+  若照常执行就是多一次构建、多一次 Pages 部署、多一个 commit
+  （`generated_at_utc` 每次都变，`git diff` 判断不出内容其实没变）。
+  因此 `build` 前面有独立的 `freshness` job：`src/should_skip.py` 检查
+  `latest.json` 的 `date` 是否已是今天、且 `generated_at_utc` 不早于 07:00（北京时间）。
+  两个条件都满足才输出 `SKIP=1`，`build` 整个跳过。
+  判断放在最前面而不是保活步骤前，否则只能省掉 commit，构建与部署照样往返一次。
+  方针是**任何不确定都照常生成**（文件缺失、JSON 损坏、字段缺失、时间早于 cutoff），
+  宁可多跑一次也不冒空发的风险。手动 dispatch 永远不跳过。
 - **`timeout-minutes: 130` 必须大于等待窗口**。准点启动时等待窗口是
   07:00→08:45 共 105 分钟，加上装字体/依赖/Chromium 与渲染约 5 分钟。
   若上限小于 105，会出现「触发越准点越必然被杀」的反向结果

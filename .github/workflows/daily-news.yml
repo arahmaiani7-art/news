@@ -31,7 +31,30 @@ permissions:
   id-token: write
 
 jobs:
+  # 前置检查：第二条 cron（08:00）在主任务已成功时整体跳过。
+  # 必须放在 build 之前，否则只是省掉 commit，构建和部署照旧往返一次。
+  freshness:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.mode.outputs.SKIP }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # 只有定时任务才做幂等跳过；手动 dispatch 要照常出图
+      - id: mode
+        run: |
+          if [ "$EVENT" = "schedule" ]; then
+            python src/should_skip.py --meta output/latest.json --cutoff 07:00
+          else
+            echo "非定时触发（$EVENT），不跳过"
+            echo "SKIP=0" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          EVENT: ${{ github.event_name }}
+
   build:
+    needs: freshness
+    if: needs.freshness.outputs.skip != '1'
     runs-on: ubuntu-latest
     # 必须 > 最坏情况总耗时，否则「触发越准点越必然失败」：
     #   等待窗口 07:00 → 08:45 = 105 分钟（准点启动时的最坏值）

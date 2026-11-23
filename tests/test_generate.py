@@ -9,8 +9,12 @@ from __future__ import annotations
 import datetime as dt
 import io
 import json
+import os
 import pathlib
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -20,6 +24,7 @@ sys.path.insert(0, str(ROOT / "src"))
 import content  # noqa: E402
 import generate  # noqa: E402
 import news  # noqa: E402
+import should_skip  # noqa: E402
 
 
 def _payload(date: str = "2026-11-20", texts: list[str] | None = None) -> dict:
@@ -110,7 +115,85 @@ class TestFetchFallback(unittest.TestCase):
                 news.fetch_daily(self.target)
 
 
-class TestWaitForToday(unittest.TestCase):
+class TestShouldSkip(unittest.TestCase):
+    """第二条 cron 的幂等跳过。核心安全要求：任何不确定都不能跳过。"""
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.meta = self.tmp / "latest.json"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write(self, **fields):
+        base = {"date": "2026-11-23", "generated_at_utc": "2026-11-23T03:12:37+00:00"}
+        base.update(fields)
+        self.meta.write_text(json.dumps(base), encoding="utf-8")
+
+    def _now(self, hhmm="08:00"):
+        hour, minute = (int(x) for x in hhmm.split(":"))
+        return dt.datetime(2026, 11, 23, hour, minute, tzinfo=should_skip.BJ)
+
+    def test_skips_when_already_generated_after_cutoff(self):
+        self._write()
+        skip, reason = should_skip.should_skip(self.meta, now=self._now("08:00"))
+        self.assertTrue(skip, reason)
+        self.assertIn("跳过", reason)
+
+    def test_generates_when_meta_missing(self):
+        skip, reason = should_skip.should_skip(self.meta, now=self._now("08:00"))
+        self.assertFalse(skip)
+        self.assertIn("不存在", reason)
+
+    def test_generates_when_date_is_yesterday(self):
+        """第二条 cron 跨到新的一天时必须重新生成，不能被昨天的产物骗过去。"""
+        self._write(date="2026-11-22")
+        skip, reason = should_skip.should_skip(self.meta, now=self._now("08:00"))
+        self.assertFalse(skip)
+        self.assertIn("不是今天", reason)
+
+    def test_generates_when_generated_before_cutoff(self):
+        """07:00 前生成的是手动补跑产物，说明主任务还没跑，08:00 必须照常生成。"""
+        self._write(generated_at_utc="2026-11-22T20:30:00+00:00")  # 北京 04:30
+        skip, reason = should_skip.should_skip(self.meta, now=self._now("08:00"))
+        self.assertFalse(skip)
+        self.assertIn("早于主任务", reason)
+
+    def test_generates_when_field_missing(self):
+        self._write(generated_at_utc=None)
+        skip, _ = should_skip.should_skip(self.meta, now=self._now("08:00"))
+        self.assertFalse(skip)
+
+    def test_generates_when_json_is_corrupt(self):
+        self.meta.write_text("{not json", encoding="utf-8")
+        skip, reason = should_skip.should_skip(self.meta, now=self._now("08:00"))
+        self.assertFalse(skip)
+        self.assertIn("读取", reason)
+
+    def test_generates_when_timestamp_unparsable(self):
+        self._write(generated_at_utc="昨天下午")
+        skip, _ = should_skip.should_skip(self.meta, now=self._now("08:00"))
+        self.assertFalse(skip)
+
+    def test_writes_github_output(self):
+        """脚本要真的把 SKIP 写进 GITHUB_OUTPUT，否则 workflow 判断不到。"""
+        self._write()
+        out = self.tmp / "out.txt"
+        env = {"GITHUB_OUTPUT": str(out), "PATH": os.environ["PATH"]}
+        subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "src" / "should_skip.py"),
+                "--meta",
+                str(self.meta),
+                "--now",
+                "2026-11-23T00:00:00+00:00",
+            ],
+            check=True,
+            env=env,
+            capture_output=True,
+        )
+        self.assertIn("SKIP=1", out.read_text(encoding="utf-8"))
     """定时任务的核心：数据晚到要等，等到截止就失败，不能空转或早退。"""
 
     target = dt.date(2026, 11, 20)
