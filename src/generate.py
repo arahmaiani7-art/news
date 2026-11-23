@@ -29,7 +29,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from content import NEWS_COUNT, validate  # noqa: E402
 from lunar import resolve_date  # noqa: E402
-from news import fetch_daily  # noqa: E402
+from news import BJ, fetch_daily, wait_for_today  # noqa: E402
 from render import RenderError, build_html, render_png  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -40,18 +40,40 @@ OUTPUT_DIR = ROOT / "output"
 HEADER_MOTTO = "把握今天的小事，时间会替努力积攒答案。"
 FOOTER_FALLBACK = HEADER_MOTTO
 
+# GitHub Actions schedule 实测排队延迟 57–64 分钟（cron 名义 08:15 → 实际 09:12~09:19），
+# 所以触发时间提前到北京时间 07:00，并在任务内等到接口发布当天数据。
+# 截止 08:45 是因为插件 09:00 发送：留出渲染与 Pages 部署时间，
+# 同时给「触发准点」和「接口 07:48 更新」这两种情况都留足余量。
+DEFAULT_DEADLINE = "08:45"
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="生成每日新闻海报")
     p.add_argument("--date", help="目标日期 YYYY-MM-DD，默认今天（北京时间）")
     p.add_argument("--dry-run", action="store_true", help="只取数不渲染")
     p.add_argument("--keep-html", action="store_true", help="保留中间 HTML 便于调试")
+    p.add_argument(
+        "--wait",
+        metavar="HH:MM",
+        default=DEFAULT_DEADLINE,
+        help=f"接口未发布当天数据时轮询等待，至迟北京时间 HH:MM（默认 {DEFAULT_DEADLINE}）",
+    )
+    p.add_argument(
+        "--no-wait",
+        action="store_true",
+        help="不做轮询等待，取到就渲染；接口未更新即失败（手动查看时用）",
+    )
     return p.parse_args(argv)
 
 
 def beijing_today() -> dt.date:
     """GitHub Actions 跑在 UTC，统一按北京时间取当天。"""
-    return (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=8)).date()
+    return dt.datetime.now(BJ).date()
+
+
+def _deadline_for(target: dt.date, hhmm: str) -> dt.datetime:
+    hour, minute = (int(x) for x in hhmm.split(":"))
+    return dt.datetime.combine(target, dt.time(hour, minute), tzinfo=BJ)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -79,12 +101,19 @@ def main(argv: list[str] | None = None) -> int:
         return 3
 
     try:
-        daily = fetch_daily(target)
-        print(f"[2/4] 新闻来源 {daily['source']}")
+        if args.no_wait or args.date:
+            # 手动补跑/调试：只取一次，不占用等待时间
+            daily = fetch_daily(target)
+            print(f"[2/4] 新闻来源 {daily['source']}")
+        else:
+            deadline = _deadline_for(target, args.wait)
+            print(f"[2/4] 等待 {target.isoformat()} 当天数据就绪（至迟 {args.wait} 北京）")
+            daily = wait_for_today(target, deadline=deadline)
+            print(f"      新闻来源 {daily['source']}")
     except Exception as exc:
         print(f"[FAIL] 新闻抓取失败：{exc}", file=sys.stderr)
         hint = (
-            f"      接口只提供最新一期（当前 {beijing_today().isoformat()}），"
+            f"      接口只提供最新一期（当前北京日期 {beijing_today().isoformat()}），"
             f"不支持回放 {target.isoformat()} 的历史新闻。"
         )
         print(hint, file=sys.stderr)

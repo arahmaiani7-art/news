@@ -110,6 +110,99 @@ class TestFetchFallback(unittest.TestCase):
                 news.fetch_daily(self.target)
 
 
+class TestWaitForToday(unittest.TestCase):
+    """定时任务的核心：数据晚到要等，等到截止就失败，不能空转或早退。"""
+
+    target = dt.date(2026, 11, 20)
+
+    def _deadline(self, hhmm="08:45"):
+        hour, minute = (int(x) for x in hhmm.split(":"))
+        return dt.datetime.combine(self.target, dt.time(hour, minute), tzinfo=news.BJ)
+
+    def _clock(self, start):
+        """可推进的假时钟：每次 sleep 都把时间往前推，模拟真实流逝。"""
+        state = {"now": start}
+
+        def clock():
+            return state["now"]
+
+        def sleep(seconds):
+            state["now"] += dt.timedelta(seconds=seconds)
+
+        return clock, sleep, state
+
+    def test_returns_immediately_when_ready(self):
+        clock, sleep, _ = self._clock(self._deadline("07:00"))
+        with mock.patch.object(news, "fetch_daily", return_value={"date": "2026-11-20", "news": []}):
+            data = news.wait_for_today(
+                self.target, deadline=self._deadline(), sleep=sleep, clock=clock
+            )
+        self.assertEqual(data["date"], "2026-11-20")
+        self.assertEqual(clock(), self._deadline("07:00"), "数据已就绪就不该推进时间")
+
+    def test_retries_until_data_arrives(self):
+        """前两次还是昨天的数据，第三次才发布——必须等到第三次。"""
+        results = [
+            news.NewsError("新闻日期 2026-11-19 与目标日期 2026-11-20 不符"),
+            news.NewsError("网络抖动"),
+            {"date": "2026-11-20", "news": ["ok"]},
+        ]
+
+        def fake_fetch(target, timeout=20):
+            item = results.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        clock, sleep, _ = self._clock(self._deadline("07:00"))
+        with mock.patch.object(news, "fetch_daily", fake_fetch):
+            data = news.wait_for_today(
+                self.target,
+                deadline=self._deadline(),
+                interval=60,
+                sleep=sleep,
+                clock=clock,
+            )
+
+        self.assertEqual(data["news"], ["ok"])
+        self.assertEqual(results, [], "第三次应该成功并停止重试")
+        self.assertEqual(clock(), self._deadline("07:02"), "两次重试各等 60 秒")
+
+    def test_raises_when_deadline_passed(self):
+        """截止时间已过且数据仍未就绪，必须抛错（上游失败不能静默）。"""
+        past = self._deadline("08:45")
+        clock, sleep, _ = self._clock(past + dt.timedelta(minutes=1))
+        with mock.patch.object(news, "fetch_daily", side_effect=news.NewsError("还是昨天")):
+            with self.assertRaises(news.NewsError) as ctx:
+                news.wait_for_today(
+                    self.target, deadline=past, sleep=sleep, clock=clock
+                )
+        self.assertIn("仍未取得", str(ctx.exception))
+        self.assertEqual(clock(), past + dt.timedelta(minutes=1), "超时后不该再等")
+
+    def test_sleep_never_exceeds_remaining_time(self):
+        """接近截止时最后一次 sleep 不能超过剩余时间，避免睡过头。"""
+        deadline = self._deadline("08:45")
+        clock, sleep, _ = self._clock(deadline - dt.timedelta(seconds=10))
+        slept = []
+
+        def recording_sleep(seconds):
+            slept.append(seconds)
+            sleep(seconds)
+
+        with mock.patch.object(news, "fetch_daily", side_effect=news.NewsError("还没更新")):
+            with self.assertRaises(news.NewsError):
+                news.wait_for_today(
+                    self.target,
+                    deadline=deadline,
+                    interval=3600,
+                    sleep=recording_sleep,
+                    clock=clock,
+                )
+
+        self.assertEqual(slept, [10], f"应只睡剩余的 10 秒，实际 {slept}")
+
+
 class TestValidate(unittest.TestCase):
     def _items(self, n=15):
         return [{"text": f"第{i}条内容长度足够通过校验"} for i in range(n)]

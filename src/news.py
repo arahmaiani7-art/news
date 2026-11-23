@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import time
 import urllib.request
 
 NEWS_COUNT = 15
@@ -23,6 +24,8 @@ URLS = (
 
 # 单条超过这个长度说明接口数据异常，宁可失败也不生成畸形长条目
 MAX_RAW_CHARS = 300
+
+BJ = dt.timezone(dt.timedelta(hours=8))
 
 
 class NewsError(RuntimeError):
@@ -77,3 +80,49 @@ def fetch_daily(target: dt.date, timeout: int = 20) -> dict:
 def fetch_news(target: dt.date, timeout: int = 20) -> list[str]:
     """只要 15 条文案，顺序与接口一致。"""
     return fetch_daily(target, timeout=timeout)["news"]
+
+
+def wait_for_today(
+    target: dt.date,
+    *,
+    deadline: dt.datetime,
+    interval: int = 180,
+    timeout: int = 20,
+    sleep=time.sleep,
+    clock=lambda: dt.datetime.now(BJ),
+) -> dict:
+    """等到接口真的发布 target 当天的那一期，或到 deadline 放弃。
+
+    为什么需要等待：GitHub Actions 的 schedule 存在明显排队延迟
+    （实测 cron 名义 08:15，实际 09:12–09:19 才启动，延迟近一小时），
+    而 60 秒接口通常 07:48 前后才更新。若只在固定时刻取一次，
+    要么取到昨天的，要么因为排队错过发送时间。
+    所以策略是「提前触发 + 任务内等到当天数据就绪」。
+
+    sleep / clock 可注入，便于测试不真的睡觉。
+    """
+    attempt = 0
+    last_error = ""
+    while True:
+        attempt += 1
+        try:
+            daily = fetch_daily(target, timeout=timeout)
+            print(f"      第 {attempt} 次尝试取得 {daily['date']} 数据，等待结束")
+            return daily
+        except Exception as exc:
+            last_error = str(exc)
+
+        now = clock()
+        if now >= deadline:
+            raise NewsError(
+                f"等到 {deadline.isoformat()} 截止仍未取得 {target.isoformat()} 当天数据"
+                f"（{last_error}）"
+            )
+
+        remaining = (deadline - now).total_seconds()
+        wait = min(interval, max(int(remaining), 1))
+        print(
+            f"      [{now:%H:%M:%S} 北京] 第 {attempt} 次未就绪：{last_error[:120]}；"
+            f"{wait}s 后重试（截止 {deadline:%H:%M}）"
+        )
+        sleep(wait)
