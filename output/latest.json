@@ -1,6 +1,6 @@
 {
   "date": "2026-11-24",
-  "generated_at_utc": "2026-11-23T23:37:23+00:00",
+  "generated_at_utc": "2026-11-24T03:24:44+00:00",
   "width": 375,
   "height": 1222,
   "lunar_date": "十月十六",
@@ -9,8 +9,9 @@
   "weekday_en": "TUESDAY",
   "solar_year": "2026年",
   "solar_date": "11月24日",
-  "source": "https://60s.coolsong.com/v2/60s",
+  "source": "https://60s-api.viki.moe/v2/60s",
   "source_link": "https://mp.weixin.qq.com/s?__biz=MzkyNDE4NDQ0Nw==&mid=2247499055&idx=1&sn=a80affd08a282e66ff186e9d01c677e7&chksm=c03644ef632172d31607b7916e71d1fd11344720016e63aa21f4d0d329d7756fefb749f172a6#rd",
+  "header_motto": "别急着证明，先把事情做成。",
   "tip": "汗水不会白白流淌，当下全力以赴拼搏，未来才有更多选择权",
   "news": [
     {
