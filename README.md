@@ -26,6 +26,13 @@ output/                产物目录，整个目录发布为 Pages 站点
 tests/                 unittest
 ```
 
+入库的产物只有 `output/latest.json`（`freshness` job 靠它判断当天是否已生成）。
+
+`output/latest.png` **不入库**：Pages 用 `upload-pages-artifact` 上传整个 `output/` 部署，
+仓库里的副本不参与发布。早期它入过库，但保活步骤只提交 json，结果仓库里的 png
+停在 2026-11-20 而 json 的 `date` 已到 11-24——线上正常，看仓库却会得出错误结论。
+`TestRepoHygiene` 守住这三条约束（png 不入库、json 入库、保活只提交 json）。
+
 ## 本地运行
 
 ```bash

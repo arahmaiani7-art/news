@@ -196,6 +196,9 @@ class TestShouldSkip(unittest.TestCase):
             capture_output=True,
         )
         self.assertIn("SKIP=1", out.read_text(encoding="utf-8"))
+
+
+class TestWaitForToday(unittest.TestCase):
     """定时任务的核心：数据晚到要等，等到截止就失败，不能空转或早退。"""
 
     target = dt.date(2026, 11, 20)
@@ -376,6 +379,46 @@ class TestMotto(unittest.TestCase):
         for n in range(120):
             day = dt.date(2026, 1, 1) + dt.timedelta(days=n)
             self.assertNotEqual(motto.pick_motto(day), motto.pick_motto(day, offset=1))
+
+
+class TestRepoHygiene(unittest.TestCase):
+    """防止「仓库状态」与「实际部署状态」背离——这类 bug 排障时极具误导性。
+
+    背景：output/latest.png 曾入库，之后保活步骤只提交 latest.json，
+    于是仓库里 png 停在 2026-11-20，而 json 的 date 已到 11-24。
+    线上 Pages 正常（走 artifact），但看仓库会得出完全错误的结论。
+    """
+
+    def _gitignore(self) -> list[str]:
+        text = (ROOT / ".gitignore").read_text(encoding="utf-8")
+        return [ln.strip() for ln in text.splitlines()]
+
+    def test_latest_png_is_not_tracked(self):
+        """latest.png 走 artifact 部署，入库只会变成过期副本。"""
+        lines = [ln for ln in self._gitignore() if ln and not ln.startswith("#")]
+        self.assertIn("output/latest.png", lines)
+
+    def test_latest_json_is_tracked(self):
+        """latest.json 必须入库：freshness job 靠它在发图前判断当天是否已生成。"""
+        lines = [ln for ln in self._gitignore() if ln and not ln.startswith("#")]
+        self.assertNotIn("output/latest.json", lines)
+        self.assertFalse(
+            any(ln in ("output", "output/", "output/*") for ln in lines),
+            "不要整目录忽略 output/，latest.json 要入库",
+        )
+
+    def test_keeper_only_commits_json(self):
+        """保活步骤提交的文件必须与 .gitignore 一致，否则又会造出过期副本。"""
+        workflow = (ROOT / ".github" / "workflows" / "daily-news.yml").read_text(
+            encoding="utf-8"
+        )
+        added = [ln.strip() for ln in workflow.splitlines() if "git add" in ln]
+        self.assertTrue(added, "未找到保活步骤的 git add")
+        for line in added:
+            self.assertNotIn(
+                "latest.png", line, f"保活不应提交 png（走 artifact）：{line}"
+            )
+            self.assertIn("latest.json", line, f"保活应只提交 latest.json：{line}")
 
 
 class TestLatestPngPreservedOnFailure(unittest.TestCase):

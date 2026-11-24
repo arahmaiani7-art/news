@@ -17,3 +17,9 @@ venv/
 # 2026-11-20.png 保留作为模板基线样本
 output/20[0-9][0-9]-*.png
 !output/2026-11-20.png
+
+# latest.png 不入库：Pages 走 artifact 部署（upload-pages-artifact 上传 output/），
+# 仓库里的副本不参与发布。曾经入库过一次，之后保活步骤只提交 latest.json，
+# 导致仓库里的 png 停在 2026-11-20，而 json 的 date 已到 11-24——
+# 排障时极易被这张过期图误导。入库的唯一产物应是 latest.json。
+output/latest.png
