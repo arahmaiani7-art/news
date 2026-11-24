@@ -9,7 +9,10 @@
   body {
     width: 375px;
     font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-    -webkit-font-smoothing: antialiased;
+    /* 不使用 -webkit-font-smoothing: antialiased：
+       它用于深底浅字，白底 #333 的 14px 小字开了反而笔画变细发虚。
+       保留 Chromium 的 --font-render-hinting=none（见 render.py），
+       避免缩放时字距被 hinting 挤歪。 */
   }
   .poster { display: flex; flex-direction: column; width: 375px; background: #FFFFFF; }
 

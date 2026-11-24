@@ -78,8 +78,25 @@ def build_html(
     return out
 
 
-def render_png(html_path: pathlib.Path, png_path: pathlib.Path, width: int = 375) -> dict:
-    """按内容高度截图，返回 {width, height}。"""
+def render_png(
+    html_path: pathlib.Path,
+    png_path: pathlib.Path,
+    width: int = 375,
+    scale: int = 3,
+) -> dict:
+    """按内容高度截图，返回 CSS 尺寸与真实像素尺寸。
+
+    为什么 scale=3：主流手机物理宽 1080–1170px，375 CSS 宽在 dsf=2 下只有 750px，
+    微信铺满屏时会被放大 1.4–1.6 倍，叠上 1:3.3 长图在会话内整体缩略，小字就糊。
+    dsf=3 得到 1125px，接近物理宽度，不必再放大。**排版完全不变**——CSS 宽、
+    字号、换行都是原来的，只是像素密度翻倍，不会把 15 条挤乱。
+
+    为什么到此为止：dsf=4 是 1500px、体积破 2MB，微信发送时会压得更狠，
+    反而更糊。800KB–1MB 是体积与清晰度的平衡点。
+
+    注意 width 只改视口，不改版式：模板里 body/.poster 都写死 375px，
+    调大 width 只会多出白边再被 dsf 一起放大，等于白做。要变宽必须改模板。
+    """
     png_path.parent.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as p:
@@ -87,7 +104,7 @@ def render_png(html_path: pathlib.Path, png_path: pathlib.Path, width: int = 375
         try:
             page = browser.new_page(
                 viewport={"width": width, "height": 1200},
-                device_scale_factor=2,  # Retina 清晰度
+                device_scale_factor=scale,
             )
             page.goto(html_path.resolve().as_uri(), wait_until="load")
             page.wait_for_timeout(300)  # 等字体与布局稳定
@@ -120,4 +137,10 @@ def render_png(html_path: pathlib.Path, png_path: pathlib.Path, width: int = 375
         finally:
             browser.close()
 
-    return metrics
+    # 同时给出 CSS 尺寸与真实像素，避免 json 里写 375 而图是 1125 的假账
+    return {
+        **metrics,
+        "scale": scale,
+        "pixel_width": metrics["width"] * scale,
+        "pixel_height": metrics["height"] * scale,
+    }

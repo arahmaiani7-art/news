@@ -161,7 +161,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         metrics = render_png(html_path, tmp_png)
-        print(f"[4/4] 渲染完成 {metrics['width']}x{metrics['height']}")
+        size_kb = tmp_png.stat().st_size / 1024
+        print(
+            f"[4/4] 渲染完成 {metrics['pixel_width']}x{metrics['pixel_height']}"
+            f"（CSS {metrics['width']}x{metrics['height']} @{metrics['scale']}x，"
+            f"{size_kb:.0f} KB）"
+        )
     except Exception as exc:
         print(f"[FAIL] 截图失败：{exc}", file=sys.stderr)
         traceback.print_exc()
@@ -178,8 +183,12 @@ def main(argv: list[str] | None = None) -> int:
     meta = {
         "date": target.isoformat(),
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        # CSS 尺寸用于还原版式；pixel_* 是图片真实像素，别只写 CSS 尺寸造成假账
         "width": metrics["width"],
         "height": metrics["height"],
+        "scale": metrics["scale"],
+        "pixel_width": metrics["pixel_width"],
+        "pixel_height": metrics["pixel_height"],
         **date_fields,
         "source": daily.get("source"),
         "source_link": daily.get("link"),

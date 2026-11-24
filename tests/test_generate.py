@@ -381,6 +381,50 @@ class TestMotto(unittest.TestCase):
             self.assertNotEqual(motto.pick_motto(day), motto.pick_motto(day, offset=1))
 
 
+class TestRenderResolution(unittest.TestCase):
+    """出图分辨率。手机物理宽 1080–1170px，750px 会被放大到发虚。"""
+
+    def test_default_scale_is_3(self):
+        """dsf=2 只有 750px 宽，微信铺满屏要放大 1.4–1.6 倍。"""
+        import inspect
+
+        from render import render_png
+
+        sig = inspect.signature(render_png)
+        self.assertEqual(sig.parameters["scale"].default, 3)
+
+    def test_pixel_size_is_css_size_times_scale(self):
+        """json 里 pixel_* 必须是 CSS 尺寸 × scale，否则又是假账。"""
+        src = (ROOT / "src" / "render.py").read_text(encoding="utf-8")
+        self.assertIn("pixel_width", src)
+        self.assertIn("pixel_height", src)
+        self.assertIn('metrics["width"] * scale', src)
+        self.assertIn('metrics["height"] * scale', src)
+
+    def test_meta_records_real_pixels(self):
+        """generate.py 必须把 scale 与 pixel_* 写进 latest.json。"""
+        src = (ROOT / "src" / "generate.py").read_text(encoding="utf-8")
+        for key in ('"scale"', '"pixel_width"', '"pixel_height"'):
+            self.assertIn(key, src)
+
+    def test_template_does_not_force_antialiased(self):
+        """白底 #333 小字开 antialiased 会让笔画变细发虚（实测墨水少 18%）。"""
+        tpl = (ROOT / "template" / "poster.html").read_text(encoding="utf-8")
+        active = [
+            ln for ln in tpl.splitlines()
+            if "font-smoothing" in ln and not ln.strip().startswith("/*")
+            and not ln.strip().startswith("*")
+        ]
+        # 允许出现在注释里说明为何不用，但不能真的生效
+        for ln in active:
+            self.assertNotIn("antialiased", ln, f"antialiased 又生效了：{ln}")
+
+    def test_template_width_is_still_375(self):
+        """渲染宽度只改视口不改版式；模板宽度变了字号排版会整体失效。"""
+        tpl = (ROOT / "template" / "poster.html").read_text(encoding="utf-8")
+        self.assertEqual(tpl.count("width: 375px"), 2, "body 与 .poster 应各写一次")
+
+
 class TestRepoHygiene(unittest.TestCase):
     """防止「仓库状态」与「实际部署状态」背离——这类 bug 排障时极具误导性。
 
