@@ -29,16 +29,13 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from content import NEWS_COUNT, validate  # noqa: E402
 from lunar import resolve_date  # noqa: E402
+from motto import pick_motto  # noqa: E402
 from news import BJ, fetch_daily, wait_for_today  # noqa: E402
 from render import RenderError, build_html, render_png  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "template" / "poster.html"
 OUTPUT_DIR = ROOT / "output"
-
-# 页头文案固定，界面识别度靠它；页脚用接口自带微语
-HEADER_MOTTO = "把握今天的小事，时间会替努力积攒答案。"
-FOOTER_FALLBACK = HEADER_MOTTO
 
 # GitHub Actions schedule 实测排队延迟 57–64 分钟（cron 名义 08:15 → 实际 09:12~09:19），
 # 所以触发时间提前到北京时间 07:00，并在任务内等到接口发布当天数据。
@@ -141,14 +138,16 @@ def main(argv: list[str] | None = None) -> int:
     dated_png = OUTPUT_DIR / f"{target.isoformat()}.png"
     latest_png = OUTPUT_DIR / "latest.png"
 
-    footer = (daily.get("tip") or "").strip() or FOOTER_FALLBACK
+    # 页头按日期轮换（同一天恒定，跨天必换）；页脚优先用接口自带微语
+    header_motto = pick_motto(target)
+    footer = (daily.get("tip") or "").strip() or pick_motto(target, offset=1)
 
     try:
         html_doc = build_html(
             TEMPLATE,
             weekday_en=date_fields["weekday_en"],
             weekday_cn=date_fields["weekday_cn"],
-            header_motto=HEADER_MOTTO,
+            header_motto=header_motto,
             lunar_date=date_fields["lunar_date"],
             solar_year=date_fields["solar_year"],
             solar_date=date_fields["solar_date"],
@@ -184,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         **date_fields,
         "source": daily.get("source"),
         "source_link": daily.get("link"),
+        "header_motto": header_motto,
         "tip": footer,
         "news": [{"index": it["index"], "text": it["text"]} for it in items],
     }

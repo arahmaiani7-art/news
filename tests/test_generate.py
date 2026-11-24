@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import collections
 import datetime as dt
 import io
 import json
@@ -23,6 +24,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import content  # noqa: E402
 import generate  # noqa: E402
+import motto  # noqa: E402
 import news  # noqa: E402
 import should_skip  # noqa: E402
 
@@ -322,6 +324,58 @@ class TestValidate(unittest.TestCase):
     def test_limit_covers_real_feed(self):
         """接口最长条目实测约 55 字，上限必须留出余量。"""
         self.assertGreaterEqual(content.MAX_CHARS, 60)
+
+
+class TestMotto(unittest.TestCase):
+    """页头格言的确定性轮换。这些性质比具体文案更重要，加条目时不能破坏。"""
+
+    def test_pool_size_is_rotation_period(self):
+        self.assertEqual(len(motto.MOTTOS), 120)
+
+    def test_no_duplicates(self):
+        """有重复就可能让相邻两天撞成同一句，破坏「跨天必换」。"""
+        dups = [m for m, n in collections.Counter(motto.MOTTOS).items() if n > 1]
+        self.assertEqual(dups, [], f"格言池有重复条目：{dups}")
+
+    def test_every_motto_within_length_limit(self):
+        """页头是固定宽度红条，超长会换行挤压 FRIDAY 与农历。"""
+        over = [(i, m) for i, m in enumerate(motto.MOTTOS, 1) if len(m) > motto.MAX_LEN]
+        self.assertEqual(over, [], f"以下格言超过 {motto.MAX_LEN} 字：{over}")
+
+    def test_no_blank_entries(self):
+        for i, m in enumerate(motto.MOTTOS, 1):
+            self.assertTrue(m.strip(), f"第 {i} 条为空")
+
+    def test_same_day_is_stable(self):
+        day = dt.date(2026, 11, 24)
+        self.assertEqual(motto.pick_motto(day), motto.pick_motto(day))
+
+    def test_consecutive_days_differ(self):
+        """连续 400 天任意相邻两天都不能相同，跨池边界也要成立。"""
+        start = dt.date(2026, 1, 1)
+        for n in range(400):
+            a = motto.pick_motto(start + dt.timedelta(days=n))
+            b = motto.pick_motto(start + dt.timedelta(days=n + 1))
+            self.assertNotEqual(a, b, f"{start + dt.timedelta(days=n)} 与次日撞句")
+
+    def test_covers_whole_pool(self):
+        """周期内必须把每条都用到，否则等于池子变小了。"""
+        start = dt.date(2026, 1, 1)
+        seen = {motto.pick_motto(start + dt.timedelta(days=n)) for n in range(120)}
+        self.assertEqual(len(seen), 120)
+
+    def test_full_cycle_returns_to_start(self):
+        start = dt.date(2026, 1, 1)
+        self.assertEqual(
+            motto.pick_motto(start),
+            motto.pick_motto(start + dt.timedelta(days=len(motto.MOTTOS))),
+        )
+
+    def test_footer_offset_differs_from_header(self):
+        """页脚兜底用 offset=1，避免同一张图上下出现同一句话。"""
+        for n in range(120):
+            day = dt.date(2026, 1, 1) + dt.timedelta(days=n)
+            self.assertNotEqual(motto.pick_motto(day), motto.pick_motto(day, offset=1))
 
 
 class TestLatestPngPreservedOnFailure(unittest.TestCase):
